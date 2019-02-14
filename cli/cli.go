@@ -22,18 +22,21 @@ func buildPreset() map[string]reinc.Rules {
 		Pattern:     `(?m)^\s*(?:\.|source)\s+"([^"]+)"\s*$`,
 		PathFormat:  "$1",
 		IgnoreError: true,
+		Mode:        reinc.RuleModeWorkDir,
 	})
 	panicIfErr(err)
 	sh2, err := reinc.NewRule(&reinc.RuleConfig{
 		Pattern:     `(?m)^\s*(?:\.|source)\s+'([^']+)'\s*$`,
 		PathFormat:  "$1",
 		IgnoreError: true,
+		Mode:        reinc.RuleModeWorkDir,
 	})
 	panicIfErr(err)
 	sh3, err := reinc.NewRule(&reinc.RuleConfig{
 		Pattern:     `(?m)^\s*(?:\.|source)\s+(\S+)\s*$`,
 		PathFormat:  "$1",
 		IgnoreError: true,
+		Mode:        reinc.RuleModeWorkDir,
 	})
 	panicIfErr(err)
 	return map[string]reinc.Rules{

@@ -1,1 +1,1 @@
-source ./log.sh
+source ./lib/log.sh

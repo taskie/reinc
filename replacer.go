@@ -16,7 +16,14 @@ type Rule struct {
 	OnceFormat        []byte
 	IgnoreError       bool
 	IgnoreErrorFormat []byte
+	Mode              string
 }
+
+const (
+	RuleModeDefault string = ""
+	RuleModeFileDir        = "filedir"
+	RuleModeWorkDir        = "workdir"
+)
 
 type RuleConfig struct {
 	Pattern           string `json:"pattern"`
@@ -25,6 +32,7 @@ type RuleConfig struct {
 	OnceFormat        string `json:"once_format"`
 	IgnoreError       bool   `json:"ignore_error"`
 	IgnoreErrorFormat string `json:"ignore_error_format"`
+	Mode              string `json:"mode"`
 }
 
 type Rules []*Rule
@@ -41,6 +49,7 @@ func NewRule(config *RuleConfig) (*Rule, error) {
 		OnceFormat:        []byte(config.OnceFormat),
 		IgnoreError:       config.IgnoreError,
 		IgnoreErrorFormat: []byte(config.IgnoreErrorFormat),
+		Mode:              config.Mode,
 	}, nil
 }
 
@@ -84,19 +93,32 @@ func (repl *Replacer) includeFile(fpath string) error {
 	return err
 }
 
-func (repl *Replacer) resolvePathImpl(fpath string) (string, error) {
+func (repl *Replacer) resolvePathImpl(fpath string, mode string) (string, error) {
+	var err error
 	if filepath.IsAbs(fpath) {
 		return fpath, nil
 	}
 	if repl.Path != "" {
-		joined := filepath.Join(filepath.Dir(repl.Path), fpath)
+		var baseDir string
+		switch mode {
+		case RuleModeDefault, RuleModeFileDir:
+			baseDir = filepath.Dir(repl.Path)
+		case RuleModeWorkDir:
+			baseDir, err = os.Getwd()
+			if err != nil {
+				return fpath, err
+			}
+		default:
+			return fpath, fmt.Errorf("invalid mode: %s", mode)
+		}
+		joined := filepath.Join(baseDir, fpath)
 		return filepath.Abs(joined)
 	}
 	return filepath.Abs(fpath)
 }
 
-func (repl *Replacer) resolvePath(fpath string) (string, error) {
-	fpath, err := repl.resolvePathImpl(fpath)
+func (repl *Replacer) resolvePath(fpath string, mode string) (string, error) {
+	fpath, err := repl.resolvePathImpl(fpath, mode)
 	if err != nil {
 		return "", err
 	}
@@ -132,7 +154,7 @@ func (repl *Replacer) replaceFirst(bs []byte, offset int) (bool, int, error) {
 	}
 	target := bs[minOffset:minEnd]
 	fpath := minRule.Regexp.ReplaceAll(target, minRule.PathFormat)
-	resolvedFpath, err := repl.resolvePath(string(fpath))
+	resolvedFpath, err := repl.resolvePath(string(fpath), minRule.Mode)
 	if err == nil {
 		if _, ok := repl.IncludedPathSet[resolvedFpath]; ok {
 			if minRule.Once || len(minRule.Regexp.ReplaceAll(target, minRule.OnceFormat)) != 0 {
