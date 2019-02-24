@@ -9,6 +9,10 @@ import (
 	"regexp"
 )
 
+const (
+	Version = "0.1.0-beta"
+)
+
 type Rule struct {
 	Regexp            *regexp.Regexp
 	PathFormat        []byte
@@ -33,6 +37,10 @@ type RuleConfig struct {
 	IgnoreError       bool   `json:"ignore_error"`
 	IgnoreErrorFormat string `json:"ignore_error_format"`
 	Mode              string `json:"mode"`
+}
+
+type ReplacerConfig struct {
+	Rules []*RuleConfig `json:"rules"`
 }
 
 type Rules []*Rule
@@ -65,44 +73,63 @@ type Replacer struct {
 }
 
 func NewReplacer(w io.Writer, r io.Reader) *Replacer {
+	repl, err := NewReplacerWithConfig(w, r, nil)
+	if err != nil {
+		panic(err)
+	}
+	return repl
+}
+
+func NewReplacerWithConfig(w io.Writer, r io.Reader, config *ReplacerConfig) (*Replacer, error) {
+	rules := make(Rules, 0)
+	if config != nil {
+		for _, ruleConfig := range config.Rules {
+			rule, err := NewRule(ruleConfig)
+			if err != nil {
+				return nil, err
+			}
+			rules = append(rules, rule)
+		}
+	}
 	return &Replacer{
 		Writer:          w,
 		Reader:          r,
+		Rules:           rules,
 		MaxDepth:        32,
 		IncludedPathSet: make(map[string]struct{}),
-	}
+	}, nil
 }
 
-func (repl *Replacer) includeFile(fpath string) error {
+func (r *Replacer) includeFile(fpath string) error {
 	file, err := os.Open(fpath)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	subRepl := &Replacer{
-		Writer:          repl.Writer,
+	subr := &Replacer{
+		Writer:          r.Writer,
 		Reader:          file,
-		Rules:           repl.Rules,
+		Rules:           r.Rules,
 		Path:            fpath,
-		MaxDepth:        repl.MaxDepth,
-		RootDir:         repl.RootDir,
-		IncludedPathSet: repl.IncludedPathSet,
-		depth:           repl.depth + 1,
+		MaxDepth:        r.MaxDepth,
+		RootDir:         r.RootDir,
+		IncludedPathSet: r.IncludedPathSet,
+		depth:           r.depth + 1,
 	}
-	_, err = subRepl.Replace()
+	_, err = subr.Replace()
 	return err
 }
 
-func (repl *Replacer) resolvePathImpl(fpath string, mode string) (string, error) {
+func (r *Replacer) resolvePathImpl(fpath string, mode string) (string, error) {
 	var err error
 	if filepath.IsAbs(fpath) {
 		return fpath, nil
 	}
-	if repl.Path != "" {
+	if r.Path != "" {
 		var baseDir string
 		switch mode {
 		case RuleModeDefault, RuleModeFileDir:
-			baseDir = filepath.Dir(repl.Path)
+			baseDir = filepath.Dir(r.Path)
 		case RuleModeWorkDir:
 			baseDir, err = os.Getwd()
 			if err != nil {
@@ -117,24 +144,24 @@ func (repl *Replacer) resolvePathImpl(fpath string, mode string) (string, error)
 	return filepath.Abs(fpath)
 }
 
-func (repl *Replacer) resolvePath(fpath string, mode string) (string, error) {
-	fpath, err := repl.resolvePathImpl(fpath, mode)
+func (r *Replacer) resolvePath(fpath string, mode string) (string, error) {
+	fpath, err := r.resolvePathImpl(fpath, mode)
 	if err != nil {
 		return "", err
 	}
-	if repl.RootDir != "" && !filepath.HasPrefix(fpath, repl.RootDir) {
+	if r.RootDir != "" && !filepath.HasPrefix(fpath, r.RootDir) {
 		return "", fmt.Errorf("banned: %s", fpath)
 	}
 	return fpath, nil
 }
 
-func (repl *Replacer) replaceFirst(bs []byte, offset int) (bool, int, error) {
+func (r *Replacer) replaceFirst(bs []byte, offset int) (bool, int, error) {
 	var err error
 	found := false
 	minOffset := len(bs)
 	minEnd := len(bs)
 	var minRule *Rule
-	for _, rule := range repl.Rules {
+	for _, rule := range r.Rules {
 		loc := rule.Regexp.FindIndex(bs[offset:])
 		if loc == nil || offset+loc[0] >= minOffset {
 			continue
@@ -145,29 +172,29 @@ func (repl *Replacer) replaceFirst(bs []byte, offset int) (bool, int, error) {
 		found = true
 	}
 	if !found {
-		n, err := repl.Writer.Write(bs[offset:])
+		n, err := r.Writer.Write(bs[offset:])
 		return false, offset + n, err
 	}
-	_, err = repl.Writer.Write(bs[offset:minOffset])
+	_, err = r.Writer.Write(bs[offset:minOffset])
 	if err != nil {
 		return true, offset, err
 	}
 	target := bs[minOffset:minEnd]
 	fpath := minRule.Regexp.ReplaceAll(target, minRule.PathFormat)
-	resolvedFpath, err := repl.resolvePath(string(fpath), minRule.Mode)
+	resolvedFpath, err := r.resolvePath(string(fpath), minRule.Mode)
 	if err == nil {
-		if _, ok := repl.IncludedPathSet[resolvedFpath]; ok {
+		if _, ok := r.IncludedPathSet[resolvedFpath]; ok {
 			if minRule.Once || len(minRule.Regexp.ReplaceAll(target, minRule.OnceFormat)) != 0 {
-				_, err = repl.Writer.Write(target)
+				_, err = r.Writer.Write(target)
 				if err != nil {
 					return true, minOffset, err
 				}
 			}
 		}
-		err = repl.includeFile(resolvedFpath)
+		err = r.includeFile(resolvedFpath)
 		if err != nil {
 			if minRule.IgnoreError || len(minRule.Regexp.ReplaceAll(target, minRule.IgnoreErrorFormat)) != 0 {
-				_, err = repl.Writer.Write(target)
+				_, err = r.Writer.Write(target)
 				if err != nil {
 					return true, minOffset, err
 				}
@@ -175,10 +202,10 @@ func (repl *Replacer) replaceFirst(bs []byte, offset int) (bool, int, error) {
 				return true, minOffset, err
 			}
 		}
-		repl.IncludedPathSet[resolvedFpath] = struct{}{}
+		r.IncludedPathSet[resolvedFpath] = struct{}{}
 	} else {
 		if minRule.IgnoreError || len(minRule.Regexp.ReplaceAll(target, minRule.IgnoreErrorFormat)) != 0 {
-			_, err = repl.Writer.Write(target)
+			_, err = r.Writer.Write(target)
 			if err != nil {
 				return true, minOffset, err
 			}
@@ -189,19 +216,19 @@ func (repl *Replacer) replaceFirst(bs []byte, offset int) (bool, int, error) {
 	return true, minEnd, nil
 }
 
-func (repl *Replacer) Replace() (int, error) {
-	if repl.depth > repl.MaxDepth {
-		return 0, fmt.Errorf("too many levels of recursion: %d", repl.depth)
+func (r *Replacer) Replace() (int, error) {
+	if r.depth > r.MaxDepth {
+		return 0, fmt.Errorf("too many levels of recursion: %d", r.depth)
 	}
 	var err error
-	bs, err := ioutil.ReadAll(repl.Reader)
+	bs, err := ioutil.ReadAll(r.Reader)
 	if err != nil {
 		return 0, err
 	}
 	found := false
 	offset := 0
 	for {
-		found, offset, err = repl.replaceFirst(bs, offset)
+		found, offset, err = r.replaceFirst(bs, offset)
 		if err != nil {
 			return offset, err
 		}

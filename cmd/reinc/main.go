@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/taskie/reinc/cli"
+	"github.com/taskie/reinc/cli/reinc"
 )
 
 func main() {
-	cli.Main()
+	reinc.Main()
 }

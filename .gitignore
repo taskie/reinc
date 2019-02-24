@@ -53,3 +53,5 @@ _testmain.go
 /cmd/reinc/reinc
 /test/coverage
 /vendor
+/tmp
+/images/dependency.png
