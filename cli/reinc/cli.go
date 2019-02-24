@@ -17,7 +17,8 @@ import (
 )
 
 type Config struct {
-	Replacer, Preset, Output, LogLevel string
+	Replacer, Preset, Output, LogLevel, Pattern, PathFormat, PathMode string
+	Error                                                             bool
 }
 
 var configFile string
@@ -33,11 +34,15 @@ func init() {
 	Command.Flags().StringP("replacer", "r", "reinc-replacer.yml", "replacer config file")
 	Command.Flags().StringP("preset", "p", "", "preset name")
 	Command.Flags().StringP("output", "o", "", "output file")
+	Command.Flags().StringP("pattern", "P", "", "replace pattern")
+	Command.Flags().StringP("path-format", "F", "$1", "path format")
+	Command.Flags().StringP("path-mode", "M", "", "mode to resolve file path")
+	Command.Flags().BoolP("error", "e", false, "raise error")
 	Command.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	Command.Flags().BoolVar(&debug, "debug", false, "debug output")
 	Command.Flags().BoolVarP(&version, "version", "V", false, "show Version")
 
-	for _, s := range []string{"replacer", "preset", "output"} {
+	for _, s := range []string{"replacer", "preset", "output", "pattern", "path-format", "path-mode", "error"} {
 		envKey := strcase.ToSnake(s)
 		structKey := strcase.ToCamel(s)
 		viper.BindPFlag(envKey, Command.Flags().Lookup(s))
@@ -146,6 +151,9 @@ func process(w io.Writer, opener *osplus.Opener, fpath string, replacerConfig *r
 	if err != nil {
 		return err
 	}
+	if fpath != "-" {
+		repl.Path = fpath
+	}
 	_, err = repl.Replace()
 	return err
 }
@@ -176,6 +184,15 @@ func run(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+	} else if config.Pattern != "" {
+		rule := &reinc.RuleConfig{
+			Pattern:     config.Pattern,
+			PathFormat:  config.PathFormat,
+			Mode:        config.PathMode,
+			IgnoreError: !config.Error,
+		}
+		replacerConfig.Rules = []*reinc.RuleConfig{rule}
+
 	} else if config.Preset != "" {
 		pReplacerConfig := preset[config.Preset]
 		if pReplacerConfig == nil {
