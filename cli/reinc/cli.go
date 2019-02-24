@@ -121,6 +121,16 @@ func buildPreset() map[string]*reinc.ReplacerConfig {
 				},
 			},
 		},
+		"c": &reinc.ReplacerConfig{
+			Rules: []*reinc.RuleConfig{
+				&reinc.RuleConfig{
+					Pattern:     `(?m)^#\s*(?:include)\s+"([^"]+)"\s*$`,
+					PathFormat:  "$1",
+					IgnoreError: true,
+					Mode:        reinc.RuleModeFileDir,
+				},
+			},
+		},
 	}
 }
 
